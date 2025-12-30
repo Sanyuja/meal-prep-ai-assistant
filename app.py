@@ -1,8 +1,57 @@
 import streamlit as st
+import pandas as pd
 
-st.set_page_config(page_title="Meal Prep AI Assistant", layout="centered")
+st.set_page_config(
+    page_title="Meal Prep AI Assistant",
+    layout="centered"
+)
 
 st.title("🥗 Meal Prep AI Assistant")
-st.write("Welcome! This app will help you plan your weekly meals.")
+st.caption("Weekly meal planning for busy professionals & families")
 
-st.info("Prototype in progress 🚧")
+@st.cache_data
+def load_meals():
+    return pd.read_csv("meals.csv")
+
+meals_df = load_meals()
+
+st.divider()
+st.subheader("Tell us about your preferences")
+
+with st.form("preferences_form"):
+    meals_per_week = st.selectbox(
+        "Meals per week",
+        options=[3, 5, 7, 10]
+    )
+
+    diet_type = st.selectbox(
+        "Diet preference",
+        options=["Any", "Omnivore", "Vegetarian", "Vegan"]
+    )
+
+    calorie_range = st.slider(
+        "Preferred calories per meal",
+        min_value=300,
+        max_value=800,
+        value=(400, 600),
+        step=50
+    )
+
+    dislikes = st.text_input(
+        "Ingredients to avoid (comma-separated)",
+        placeholder="e.g. mushrooms, peanuts"
+    )
+
+    budget = st.selectbox(
+        "Budget per meal ($)",
+        options=["Any", "Under $13", "$13–$15", "$15+"]
+    )
+
+    submitted = st.form_submit_button("Generate my weekly plan")
+st.divider()
+st.subheader("Available Meals")
+
+st.dataframe(
+    meals_df,
+    use_container_width=True
+)
