@@ -36,6 +36,14 @@ def filter_meals(df, diet_type, calorie_range, dislikes):
 
     return filtered
 
+def score_meals(df):
+    scored = df.copy()
+    scored["score"] = scored["protein_g"]
+    scored = scored.sort_values(by="score", ascending=False)
+    return scored 
+
+def generate_weekly_plan(df, meals_per_week):
+    return df.head(meals_per_week)
 
 with st.form("preferences_form"):
     meals_per_week = st.selectbox(
@@ -68,7 +76,7 @@ with st.form("preferences_form"):
 
     submitted = st.form_submit_button("Generate my weekly plan")
     if submitted:
-        results = filter_meals(
+        filtered = filter_meals(
             meals_df,
             diet_type,
             calorie_range,
@@ -76,12 +84,30 @@ with st.form("preferences_form"):
         )
 
         st.divider()
-        st.subheader("Recommended Meals")
+        st.subheader("Your Weekly Meal Plan")
 
-        if results.empty:
+        if filtered.empty:
             st.warning("No meals match your preferences. Try adjusting filters.")
         else:
-            st.dataframe(results.head(meals_per_week))
+            scored = score_meals(filtered)
+            weekly_plan = generate_weekly_plan(scored, meals_per_week)
+
+            st.write(
+                f"Here’s a {meals_per_week}-meal plan optimized for higher protein."
+            )
+
+            st.dataframe(
+                weekly_plan[
+                    [
+                        "meal_name",
+                        "calories",
+                        "protein_g",
+                        "diet_type",
+                        "price_estimate",
+                    ]
+                ],
+                use_container_width=True
+            )
 
 st.divider()
 st.subheader("Available Meals")
