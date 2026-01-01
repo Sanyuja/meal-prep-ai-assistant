@@ -1,19 +1,21 @@
 import streamlit as st
 import pandas as pd
+from datetime import date, datetime
 import os
-from email.message import EmailMessage
-import smtplib
 
+# -----------------------------
+# Page config
+# -----------------------------
 st.set_page_config(
-    page_title="Meal Prep AI Assistant",
+    page_title="First Course — Meal Prep",
     layout="centered"
 )
 
-st.title("🥗 First Course AI Assistant")
-st.caption("Weekly meal planning for busy professionals & families")
+st.title("🥗 First Course")
+st.caption("Thoughtful weekly meal planning, made personal.")
 
 # -----------------------------
-# Load meals dataset
+# Load meals
 # -----------------------------
 @st.cache_data
 def load_meals():
@@ -26,6 +28,7 @@ meals_df = load_meals()
 # -----------------------------
 def filter_meals(df, diet_type, calorie_range, dislikes):
     filtered = df.copy()
+
     if diet_type != "Any":
         filtered = filtered[filtered["diet_type"] == diet_type]
 
@@ -35,188 +38,155 @@ def filter_meals(df, diet_type, calorie_range, dislikes):
     ]
 
     if dislikes:
-        dislike_list = [d.strip().lower() for d in dislikes.split(",")]
-        for item in dislike_list:
-            filtered = filtered[~filtered["ingredients"].str.lower().str.contains(item)]
+        for item in dislikes.split(","):
+            filtered = filtered[
+                ~filtered["ingredients"].str.lower().str.contains(item.strip().lower())
+            ]
 
     return filtered
 
 def score_meals(df):
     scored = df.copy()
-    scored["score"] = scored["protein_g"]  # prioritize protein
-    scored = scored.sort_values(by="score", ascending=False)
-    return scored
-
-def generate_weekly_plan(df, meals_per_week):
-    return df.head(meals_per_week)
+    scored["score"] = scored["protein_g"]
+    return scored.sort_values("score", ascending=False)
 
 def generate_grocery_list(df):
-    ingredients_series = df["ingredients"].dropna()
-    all_ingredients = []
-    for item in ingredients_series:
-        parts = [i.strip().lower() for i in item.split(",")]
-        all_ingredients.extend(parts)
-    grocery_df = pd.Series(all_ingredients).value_counts().reset_index()
+    ingredients = []
+    for row in df["ingredients"].dropna():
+        ingredients.extend([i.strip().lower() for i in row.split(",")])
+
+    grocery_df = pd.Series(ingredients).value_counts().reset_index()
     grocery_df.columns = ["ingredient", "quantity"]
     return grocery_df
 
 # -----------------------------
-# Initialize session state
+# Session state initialization
 # -----------------------------
 if "weekly_plan" not in st.session_state:
-    st.session_state["weekly_plan"] = None
-if "service_type" not in st.session_state:
-    st.session_state["service_type"] = "Meal delivery"
-if "cooking_days" not in st.session_state:
-    st.session_state["cooking_days"] = []
-if "cooking_time" not in st.session_state:
-    st.session_state["cooking_time"] = ""
+    st.session_state.weekly_plan = None
+
 if "submitted" not in st.session_state:
-    st.session_state["submitted"] = False
+    st.session_state.submitted = False
 
 # -----------------------------
-# Service type & schedule
+# Client info
 # -----------------------------
+st.subheader("Your details")
+
+client_name = st.text_input("Full name")
+client_email = st.text_input("Email")
+client_phone = st.text_input("Phone number")
+start_date = st.date_input("Preferred start date", min_value=date.today())
+
+# -----------------------------
+# Service type
+# -----------------------------
+st.subheader("Service type")
+
 service_type = st.radio(
-    "Service type",
-    ["Meal delivery", "In-home cooking"],
-    index=0
+    "",
+    ["Meal delivery", "In-home cooking"]
 )
 
-st.session_state["service_type"] = service_type
-
 if service_type == "In-home cooking":
-    st.info("Your chef will come to your home to cook meals.")
-
     cooking_days = st.multiselect(
-        "Select preferred cooking days",
-        options=["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        "Preferred cooking days",
+        ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     )
 
     cooking_time = st.selectbox(
         "Preferred cooking time",
-        options=["Morning (8am–12pm)", "Afternoon (12pm–4pm)", "Evening (4pm–8pm)"]
+        ["Morning (8–12)", "Afternoon (12–4)", "Evening (4–8)"]
     )
-
-    st.session_state["cooking_days"] = cooking_days
-    st.session_state["cooking_time"] = cooking_time
 else:
-    st.session_state["cooking_days"] = []
-    st.session_state["cooking_time"] = ""
+    cooking_days = []
+    cooking_time = ""
 
 # -----------------------------
 # Preferences form
 # -----------------------------
-st.divider()
-st.subheader("Tell us about your preferences")
+st.subheader("Meal preferences")
 
 with st.form("preferences_form"):
-    meals_per_week = st.selectbox(
-        "Meals per week",
-        options=[3, 5, 7, 10]
-    )
-
-    diet_type = st.selectbox(
-        "Diet preference",
-        options=["Any", "Omnivore", "Vegetarian", "Vegan"]
-    )
-
+    meals_per_week = st.selectbox("Meals per week", [3, 5, 7, 10])
+    diet_type = st.selectbox("Diet type", ["Any", "Omnivore", "Vegetarian", "Vegan"])
     calorie_range = st.slider(
-        "Preferred calories per meal",
-        min_value=300,
-        max_value=800,
-        value=(400, 600),
-        step=50
+        "Calories per meal", 300, 800, (400, 600), step=50
     )
+    dislikes = st.text_input("Ingredients to avoid")
 
-    dislikes = st.text_input(
-        "Ingredients to avoid (comma-separated)",
-        placeholder="e.g. mushrooms, peanuts"
-    )
-
-    budget = st.selectbox(
-        "Budget per meal ($)",
-        options=["Any", "Under $13", "$13–$15", "$15+"]
-    )
-
-    submitted_form = st.form_submit_button("Generate my weekly plan")
+    generate = st.form_submit_button("Generate my plan")
 
 # -----------------------------
-# After form submission
+# Generate meal plan
 # -----------------------------
-if submitted_form:
+if generate:
     filtered = filter_meals(meals_df, diet_type, calorie_range, dislikes)
 
     if filtered.empty:
-        st.warning("No meals match your preferences. Try adjusting filters.")
+        st.warning("No meals match your preferences.")
+        st.session_state.weekly_plan = None
     else:
-        scored = score_meals(filtered)
-        weekly_plan = generate_weekly_plan(scored, meals_per_week)
+        st.session_state.weekly_plan = score_meals(filtered).head(meals_per_week)
+        st.session_state.submitted = False  # reset submission
 
-        # Persist in session_state
-        st.session_state["weekly_plan"] = weekly_plan
-        st.session_state["submitted"] = False  # Reset submission status
+# -----------------------------
+# Display generated plan
+# -----------------------------
+if st.session_state.weekly_plan is not None:
+    weekly_plan = st.session_state.weekly_plan
+    grocery_list = generate_grocery_list(weekly_plan)
 
-        st.divider()
-        st.subheader("Your Weekly Meal Plan")
-        st.dataframe(
-            weekly_plan[["meal_name", "calories", "protein_g", "diet_type", "price_estimate"]],
-            use_container_width=True
+    st.subheader("Your weekly meal plan")
+    st.dataframe(
+        weekly_plan[
+            ["meal_name", "calories", "protein_g", "diet_type", "price_estimate"]
+        ],
+        use_container_width=True
+    )
+
+    st.subheader("🛒 Grocery list")
+    st.dataframe(grocery_list, use_container_width=True)
+
+    st.divider()
+    st.subheader("Submit to chef")
+
+    if st.button("Submit plan"):
+        submission_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        plan_to_save = weekly_plan.copy()
+        plan_to_save["submission_id"] = submission_id
+        plan_to_save["client_name"] = client_name
+        plan_to_save["client_email"] = client_email
+        plan_to_save["client_phone"] = client_phone
+        plan_to_save["start_date"] = start_date
+        plan_to_save["service_type"] = service_type
+        plan_to_save["cooking_days"] = ",".join(cooking_days)
+        plan_to_save["cooking_time"] = cooking_time
+        plan_to_save["submitted_at"] = datetime.now().isoformat()
+
+        file_exists = os.path.exists("submitted_plans.csv")
+
+        plan_to_save.to_csv(
+            "submitted_plans.csv",
+            mode="a",
+            index=False,
+            header=not file_exists
         )
 
-        st.divider()
-        st.subheader("🛒 Weekly Grocery List")
-        grocery_list = generate_grocery_list(weekly_plan)
-        st.dataframe(
-            grocery_list,
-            use_container_width=True
-        )
-
-        if service_type == "In-home cooking":
-            st.divider()
-            st.subheader("🧑‍🍳 In-Home Cooking Schedule")
-            st.write(f"Days: {', '.join(cooking_days) if cooking_days else 'No days selected'}")
-            st.write(f"Time: {cooking_time}")
-        else:
-            st.info("Your meals will be delivered in containers for the week.")
+        st.session_state.submitted = True
 
 # -----------------------------
-# Submit to Chef button (outside form)
+# Confirmation message (PERSISTS)
 # -----------------------------
-st.divider()
-st.subheader("Submit Plan to Chef")
-
-if st.session_state["submitted"]:
-    st.success("✅ Your meal plan has been submitted to the chef!")
-else:
-    if st.button("Submit to Chef"):
-        if st.session_state["weekly_plan"] is not None:
-            plan_to_save = st.session_state["weekly_plan"].copy()
-            plan_to_save["service_type"] = st.session_state["service_type"]
-            if st.session_state["service_type"] == "In-home cooking":
-                plan_to_save["cooking_days"] = ",".join(st.session_state["cooking_days"])
-                plan_to_save["cooking_time"] = st.session_state["cooking_time"]
-
-            header = not os.path.exists("submitted_plans.csv")
-            plan_to_save.to_csv("submitted_plans.csv", mode="a", index=False, header=header)
-
-            st.session_state["submitted"] = True
-            st.success("✅ Plan submitted to chef! CSV saved successfully.")
-            st.info(f"CSV path: {os.path.abspath('submitted_plans.csv')}")
-
-            # Email placeholders
-            chef_email = "chef_email@example.com"
-            client_email = "client_email@example.com"
-            st.info("Emails would be sent to chef and client here (uncomment send_email lines after adding credentials).")
-        else:
-            st.warning("No weekly plan to submit. Please generate a plan first.")
+if st.session_state.submitted:
+    st.success("✅ Your plan has been submitted to the chef.")
+    st.info(
+        "You’ll receive a confirmation once the chef reviews availability."
+    )
 
 # -----------------------------
-# Display all available meals
+# Debug section
 # -----------------------------
-st.divider()
-st.subheader("Available Meals")
-st.dataframe(
-    meals_df,
-    use_container_width=True
-)
+with st.expander("See available meals"):
+    st.dataframe(meals_df, use_container_width=True)
